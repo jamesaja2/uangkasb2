@@ -72,9 +72,9 @@ export async function POST(req: NextRequest) {
 
     if (bill.appliedDenda > 0) {
       orderItems.push({
-        name: `Denda Keterlambatan (Deadline tgl ${bill.tanggalDeadline})`,
-        quantity: 1,
-        price: bill.appliedDenda,
+        name: `Denda Keterlambatan (${bill.weeksLate} minggu pasca deadline tgl ${bill.tanggalDeadline})`,
+        quantity: bill.weeksLate,
+        price: bill.dendaPerMinggu,
         subtotal: bill.appliedDenda,
       });
     }
@@ -99,6 +99,8 @@ export async function POST(req: NextRequest) {
           periodName: bill.periodName,
           hargaDasar: bill.hargaDasar,
           denda: bill.appliedDenda,
+          weeksLate: bill.weeksLate,
+          dendaPerMinggu: bill.dendaPerMinggu,
           mdrFee: bill.mdrFee,
           mdrRate: "0.7%",
           expiration_date: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),

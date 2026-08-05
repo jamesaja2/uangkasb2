@@ -218,7 +218,7 @@ export default function AdminSettingsPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="uangkas_denda" className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                  <AlertCircle className="w-4 h-4 text-amber-500" /> Denda Keterlambatan (Rp)
+                  <AlertCircle className="w-4 h-4 text-amber-500" /> Denda per Minggu (Rp)
                 </Label>
                 <Input
                   id="uangkas_denda"
@@ -230,7 +230,7 @@ export default function AdminSettingsPage() {
                   required
                 />
                 <p className="text-[11px] text-zinc-500">
-                  Denda flat yang otomatis ditambahkan bila terlambat melunasi.
+                  Denda yang dihitung berlipat per minggu pasca melewati tanggal deadline.
                 </p>
               </div>
             </div>

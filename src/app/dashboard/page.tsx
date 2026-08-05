@@ -41,6 +41,8 @@ interface KasInfo {
     deadlineDateStr: string;
     isOverdue: boolean;
     appliedDenda: number;
+    weeksLate?: number;
+    dendaPerMinggu?: number;
     subtotal: number;
     mdrRate: number;
     mdrFee: number;
@@ -217,8 +219,8 @@ export default function DashboardPage() {
 
                   <div className="flex justify-between items-center text-sm text-zinc-600 dark:text-zinc-400">
                     <span className="flex items-center gap-1.5">
-                      Denda Keterlambatan
-                      {bill.isOverdue && <span className="text-xs text-red-500 font-semibold">(Melewati tgl {bill.tanggalDeadline})</span>}
+                      Denda Keterlambatan (Per Minggu)
+                      {bill.isOverdue && <span className="text-xs text-red-500 font-semibold">(Terlambat {bill.weeksLate || 1} minggu pasca tgl {bill.tanggalDeadline})</span>}
                     </span>
                     <span className={`font-medium ${bill.isOverdue ? "text-red-600 dark:text-red-400 font-semibold" : "text-emerald-600 dark:text-emerald-400"}`}>
                       {bill.appliedDenda > 0 ? `+ ${formatCurrency(bill.appliedDenda)}` : "Rp 0 (Tepat Waktu)"}

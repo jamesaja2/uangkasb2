@@ -14,6 +14,8 @@ export interface UangKasBillInfo {
   deadlineDateStr: string; // e.g. "10 Agustus 2026"
   isOverdue: boolean;
   appliedDenda: number;
+  weeksLate: number;
+  dendaPerMinggu: number;
   subtotal: number;
   mdrRate: number; // 0.007 (0,7%)
   mdrFee: number;
@@ -101,7 +103,11 @@ export async function getUangKasBill(tenantId: string): Promise<UangKasBillInfo>
   // Keterlambatan: jika hari ini melebihi tanggal deadline dan belum lunas
   const currentDay = now.getDate();
   const isOverdue = !isPaid && currentDay > config.tanggalDeadline;
-  const appliedDenda = isOverdue ? config.denda : 0;
+  
+  // Denda dihitung per minggu (setiap kelipatan 7 hari atau mulai minggu baru terhitung 1 minggu denda)
+  const daysLate = isOverdue ? Math.max(1, currentDay - config.tanggalDeadline) : 0;
+  const weeksLate = isOverdue ? Math.ceil(daysLate / 7) : 0;
+  const appliedDenda = isOverdue ? (weeksLate * config.denda) : 0;
 
   const subtotal = config.hargaDasar + appliedDenda;
 
@@ -118,6 +124,8 @@ export async function getUangKasBill(tenantId: string): Promise<UangKasBillInfo>
     deadlineDateStr,
     isOverdue,
     appliedDenda,
+    weeksLate,
+    dendaPerMinggu: config.denda,
     subtotal,
     mdrRate,
     mdrFee,
