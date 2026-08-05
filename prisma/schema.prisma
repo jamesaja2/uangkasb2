@@ -1,0 +1,191 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────
+
+enum UserRole {
+  SUPERADMIN
+  MERCHANT
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BLOCKED
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+enum TransactionStatus {
+  PENDING
+  PAID
+  EXPIRED
+  CANCELLED
+  FAILED
+  REFUNDED
+}
+
+enum AuditStatus {
+  SUCCESS
+  FAILED
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+  RETRYING
+}
+
+// ─── Tenant ─────────────────────────────────────
+
+model Tenant {
+  id              String       @id @default(cuid())
+  name            String
+  slug            String       @unique
+  apiKeyLive      String?      // Encrypted — per-tenant override
+  apiKeyTest      String?      // Encrypted — per-tenant override
+  webhookSecret   String?      // Encrypted
+  webhookUrl      String?      // Merchant callback URL
+  transactionQuota Int         @default(0) // 0 = unlimited
+  status          TenantStatus @default(ACTIVE)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  users           User[]
+  transactions    Transaction[]
+  webhookLogs     WebhookLog[]
+
+  @@map("tenants")
+}
+
+// ─── User ───────────────────────────────────────
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  role         UserRole   @default(MERCHANT)
+  status       UserStatus @default(ACTIVE)
+  tenantId     String?
+  tenant       Tenant?    @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  auditLogs    AuditLog[]
+
+  @@index([tenantId])
+  @@index([email])
+  @@map("users")
+}
+
+// ─── Transaction ────────────────────────────────
+
+model Transaction {
+  id              String            @id @default(cuid())
+  tenantId        String
+  tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  trxId           String            @unique  // Paymenku transaction ID (e.g., IDP202602271039768990)
+  referenceId     String            // Merchant's own reference ID
+  amount          Decimal           @db.Decimal(15, 2)
+  platformFee     Decimal?          @default(0) @db.Decimal(15, 2)
+  totalFee        Decimal?          @db.Decimal(15, 2)
+  amountReceived  Decimal?          @db.Decimal(15, 2)
+  status          TransactionStatus @default(PENDING)
+  channelCode     String            // e.g., bca_va, qris, ovo
+  customerName    String
+  customerEmail   String
+  customerPhone   String?
+  paymentInfo     Json?             // VA number, QRIS data, etc.
+  orderItems      Json?             // Array of order items
+  payUrl          String?           // Paymenku payment URL
+  returnUrl       String?
+  paidAt          DateTime?
+  expiresAt       DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  webhookLogs     WebhookLog[]
+
+  @@index([tenantId])
+  @@index([trxId])
+  @@index([referenceId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("transactions")
+}
+
+// ─── Audit Log ──────────────────────────────────
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  userId     String?
+  user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userName   String?
+  action     String      // e.g., "user.login", "transaction.create", "settings.update"
+  target     String?     // e.g., "user:abc123", "transaction:xyz"
+  details    Json?       // Additional context
+  ipAddress  String?
+  userAgent  String?
+  status     AuditStatus @default(SUCCESS)
+  createdAt  DateTime    @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ─── Webhook Log ────────────────────────────────
+
+model WebhookLog {
+  id              String               @id @default(cuid())
+  tenantId        String?
+  tenant          Tenant?              @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  transactionId   String?
+  transaction     Transaction?         @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  trxId           String               // Paymenku transaction ID
+  event           String               // e.g., "payment.status_updated"
+  payload         Json                 // Raw webhook payload
+  signatureValid  Boolean              @default(false)
+  responseStatus  Int?                 // HTTP status from merchant callback
+  responseBody    String?
+  deliveryStatus  WebhookDeliveryStatus @default(PENDING)
+  attempts        Int                  @default(0)
+  nextRetryAt     DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@index([tenantId])
+  @@index([trxId])
+  @@index([event])
+  @@index([deliveryStatus])
+  @@map("webhook_logs")
+}
+
+// ─── System Setting ─────────────────────────────
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique  // e.g., "paymenku_api_key_live", "paymenku_webhook_secret"
+  value     String   // Encrypted for sensitive values
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
