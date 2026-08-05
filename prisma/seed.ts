@@ -6,29 +6,27 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("🌱 Seeding database...");
 
-  // Create default tenant
+  // 1. Create default tenant / Kelompok Uang Kas
   const tenant = await prisma.tenant.upsert({
     where: { slug: "default-tenant" },
     update: {},
     create: {
-      name: "Default Tenant",
+      name: "Kelompok Uang Kas Utama",
       slug: "default-tenant",
     },
   });
-
   console.log(`✅ Tenant created: ${tenant.name} (${tenant.id})`);
 
-  // Create Super Admin
-  const adminEmail =
-    process.env.SEED_ADMIN_EMAIL || "admin@paymentbyjames.com";
+  // 2. Create Super Admin Uang Kas
+  const adminEmail = process.env.SEED_ADMIN_EMAIL || "admin@paymentbyjames.com";
   const adminPassword = process.env.SEED_ADMIN_PASSWORD || "Admin@123456";
-  const adminName = process.env.SEED_ADMIN_NAME || "Super Admin";
+  const adminName = process.env.SEED_ADMIN_NAME || "Admin Uang Kas";
 
   const passwordHash = await bcrypt.hash(adminPassword, 12);
 
   const admin = await prisma.user.upsert({
     where: { email: adminEmail },
-    update: {},
+    update: { name: adminName },
     create: {
       email: adminEmail,
       passwordHash,
@@ -38,41 +36,61 @@ async function main() {
       tenantId: tenant.id,
     },
   });
+  console.log(`✅ Admin created: ${admin.email}`);
 
-  console.log(`✅ Super Admin created: ${admin.email}`);
+  // 3. Create Demo Member / Pembayar Kas (menggantikan fungsi merchant lama)
+  const memberEmail = "merchant@paymentbyjames.com";
+  const memberHash = await bcrypt.hash("Merchant@123456", 12);
 
-  // Create a sample Merchant
-  const merchantEmail = "merchant@paymentbyjames.com";
-  const merchantHash = await bcrypt.hash("Merchant@123456", 12);
-
-  const merchantTenant = await prisma.tenant.upsert({
+  const memberTenant = await prisma.tenant.upsert({
     where: { slug: "sample-merchant" },
-    update: {},
+    update: { name: "Anggota Kas Demo" },
     create: {
-      name: "Sample Merchant",
+      name: "Anggota Kas Demo",
       slug: "sample-merchant",
     },
   });
 
-  const merchant = await prisma.user.upsert({
-    where: { email: merchantEmail },
-    update: {},
+  const member = await prisma.user.upsert({
+    where: { email: memberEmail },
+    update: { name: "Budi (Anggota Kas)" },
     create: {
-      email: merchantEmail,
-      passwordHash: merchantHash,
-      name: "Merchant Demo",
-      role: "MERCHANT",
+      email: memberEmail,
+      passwordHash: memberHash,
+      name: "Budi (Anggota Kas)",
+      role: "MERCHANT", // Role default pengguna agar bisa login ke dashboard
       status: "ACTIVE",
-      tenantId: merchantTenant.id,
+      tenantId: memberTenant.id,
     },
   });
+  console.log(`✅ Demo Member created: ${member.email}`);
 
-  console.log(`✅ Merchant created: ${merchant.email}`);
+  // 4. Seed Default System Settings untuk Uang Kas & DOKU SNAP QRIS
+  const defaultSettings = [
+    { key: "uangkas_harga_dasar", value: "50000" },
+    { key: "uangkas_tanggal_deadline", value: "10" },
+    { key: "uangkas_denda", value: "5000" },
+    { key: "doku_terminal_id", value: "A01" },
+    { key: "doku_is_production", value: "false" },
+  ];
+
+  for (const s of defaultSettings) {
+    await prisma.systemSetting.upsert({
+      where: { key: s.key },
+      update: {},
+      create: {
+        key: s.key,
+        value: s.value,
+        updatedBy: admin.id,
+      },
+    });
+  }
+  console.log("✅ Default Uang Kas & DOKU QRIS settings seeded.");
 
   console.log("\n🎉 Seeding complete!");
   console.log("\n📋 Login credentials:");
-  console.log(`   Admin:    ${adminEmail} / ${adminPassword}`);
-  console.log(`   Merchant: ${merchantEmail} / Merchant@123456`);
+  console.log(`   Admin (Pengelola):  ${adminEmail} / ${adminPassword}`);
+  console.log(`   Member (Pembayar):  ${memberEmail} / Merchant@123456`);
 }
 
 main()
@@ -83,3 +101,4 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
+
