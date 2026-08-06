@@ -300,7 +300,7 @@ export default function AdminSettingsPage() {
                 <Input
                   id="doku_client_id"
                   type="text"
-                  placeholder="BR-xxxxx atau Client ID Anda"
+                  placeholder="BR-xxxxx atau Client ID DOKU Anda"
                   value={settings.doku_client_id}
                   onChange={(e) => setSettings({ ...settings, doku_client_id: e.target.value })}
                   className="font-mono text-sm h-12 rounded-xl"
@@ -308,24 +308,12 @@ export default function AdminSettingsPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="doku_merchant_id" className="font-semibold">Merchant ID (MALL_ID)</Label>
-                <Input
-                  id="doku_merchant_id"
-                  type="text"
-                  placeholder="100xxxxx"
-                  value={settings.doku_merchant_id}
-                  onChange={(e) => setSettings({ ...settings, doku_merchant_id: e.target.value })}
-                  className="font-mono text-sm h-12 rounded-xl"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="doku_client_secret" className="font-semibold">Secret Key (Untuk HMAC-SHA512)</Label>
+                <Label htmlFor="doku_client_secret" className="font-semibold">Secret Key / Private Key</Label>
                 <div className="relative">
                   <Input
                     id="doku_client_secret"
                     type={showSecret ? "text" : "password"}
-                    placeholder="Masukkan Secret Key..."
+                    placeholder="Masukkan Secret Key DOKU..."
                     value={settings.doku_client_secret}
                     onChange={(e) => setSettings({ ...settings, doku_client_secret: e.target.value })}
                     className="pr-10 font-mono text-sm h-12 rounded-xl"
@@ -339,31 +327,15 @@ export default function AdminSettingsPage() {
                   </button>
                 </div>
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="doku_token_b2b" className="font-semibold">Token B2B (Bearer Access Token)</Label>
-                <div className="relative">
-                  <Input
-                    id="doku_token_b2b"
-                    type={showToken ? "text" : "password"}
-                    placeholder="eyJhbGciOi..."
-                    value={settings.doku_token_b2b}
-                    onChange={(e) => setSettings({ ...settings, doku_token_b2b: e.target.value })}
-                    className="pr-10 font-mono text-sm h-12 rounded-xl"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowToken(!showToken)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
-                  >
-                    {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
             </div>
 
-            <div className="text-xs text-zinc-500 bg-zinc-100 dark:bg-zinc-800 p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-700">
-              💡 <strong>Catatan Simulator Mode:</strong> Jika Anda tidak mengisikan kredensial asli DOKU atau jika jaringan tidak tersambung ke server produksi bank, sistem secara otomatis beralih ke <strong>DOKU Simulator Mode</strong>, memungkinkan Anda meninjau QRIS, menghitung MDR 0,7%, dan mensimulasikan pembayaran langsung di layar checkout.
+            <div className="space-y-2 text-xs text-zinc-600 dark:text-zinc-400 bg-zinc-100/80 dark:bg-zinc-800/80 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-700 leading-relaxed">
+              <p>
+                ⚡ <strong>Otomasi Token B2B & MALL ID:</strong> Sesuai protokol DOKU SNAP, Anda tidak perlu mengisikan Token atau Mall ID. Token B2B (Bearer Access Token) akan diunduh secara dinamis & otomatis oleh server kami via <code>/authorization/v1/access-token/b2b</code> sebelum mencetak QRIS.
+              </p>
+              <p>
+                🔒 <strong>Mode Live vs Sandbox:</strong> Dalam mode <strong>Live Production</strong>, jika kredensial atau IP Whitelist Anda keliru, sistem akan langsung menampilkan pesan error asli dari Bank DOKU tanpa membuat kode palsu. Simulator Mode hanya aktif jika memilih Sandbox.
+              </p>
             </div>
           </CardContent>
         </Card>

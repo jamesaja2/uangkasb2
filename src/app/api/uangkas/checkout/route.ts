@@ -129,6 +129,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error("Uang Kas checkout error:", error);
-    return NextResponse.json({ error: "Gagal memproses pembayaran Uang Kas." }, { status: 500 });
+    const msg = error instanceof Error ? error.message : "Gagal memproses pembayaran Uang Kas.";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

@@ -107,10 +107,74 @@ export class DokuQrisClient {
     });
   }
 
-  private generateSignature(method: string, endpointPath: string, body: unknown, timestamp: string): string {
+  private async getAccessToken(timestamp: string): Promise<string> {
+    // Jika token manual valid sudah diatur via environment/database, gunakan:
+    if (this.tokenB2b && this.tokenB2b !== "dummy-b2b-token" && this.tokenB2b.length > 20) {
+      return this.tokenB2b;
+    }
+
+    if (!this.clientId || !this.secretKey) {
+      return "dummy-b2b-token";
+    }
+
+    const tokenUrl = `${this.baseUrl}/authorization/v1/access-token/b2b`;
+    const stringToSign = `${this.clientId}|${timestamp}`;
+    let signature = "";
+
+    try {
+      // Jika secretKey berupa RSA Private Key (PEM format)
+      if (this.secretKey.includes("PRIVATE KEY")) {
+        signature = crypto
+          .createSign("RSA-SHA256")
+          .update(stringToSign, "utf8")
+          .sign(this.secretKey, "base64");
+      } else {
+        // Jika berupa Secret Key biasa (Symmetric / HMAC SHA-512)
+        signature = crypto
+          .createHmac("sha512", this.secretKey)
+          .update(stringToSign, "utf8")
+          .digest("base64");
+      }
+
+      const res = await fetch(tokenUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CLIENT-KEY": this.clientId,
+          "X-TIMESTAMP": timestamp,
+          "X-SIGNATURE": signature,
+        },
+        body: JSON.stringify({ grantType: "client_credentials" }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const token = data.accessToken || data.access_token;
+        if (token) {
+          this.tokenB2b = token; // Cache token sementara di memori instance ini
+          return token;
+        }
+      } else {
+        const errText = await res.text();
+        console.warn(`⚠️ Gagal mengambil DOKU B2B Access Token (${res.status}): ${errText}`);
+        if (this.isProduction) {
+          throw new Error(`Gagal Autentikasi Token DOKU B2B (${res.status}): ${errText}. Periksa validitas Client ID & Secret Key/Private Key Anda.`);
+        }
+      }
+    } catch (e) {
+      console.warn("⚠️ Error saat proses generasi token DOKU:", e);
+      if (this.isProduction && e instanceof Error && e.message.includes("Gagal Autentikasi")) {
+        throw e;
+      }
+    }
+
+    return this.tokenB2b || "dummy-b2b-token";
+  }
+
+  private generateSignature(method: string, endpointPath: string, body: unknown, timestamp: string, token: string): string {
     const minifyBody = JSON.stringify(body);
     const hashBody = crypto.createHash("sha256").update(minifyBody, "utf8").digest("hex").toLowerCase();
-    const stringToSign = `${method}:${endpointPath}:${this.tokenB2b}:${hashBody}:${timestamp}`;
+    const stringToSign = `${method}:${endpointPath}:${token}:${hashBody}:${timestamp}`;
     
     return crypto.createHmac("sha512", this.secretKey || "secret").update(stringToSign, "utf8").digest("hex");
   }
@@ -127,13 +191,16 @@ export class DokuQrisClient {
     // Format amount dengan tepat 2 desimal (cth: "50350.00")
     const formattedAmount = Number(params.amount).toFixed(2);
 
+    // MALL_ID di DOKU SNAP sering kali sama dengan Client ID jika tidak diberikan secara khusus
+    const resolvedMerchantId = this.merchantId || this.clientId || "MALL_ID_TEST";
+
     const requestBody = {
       partnerReferenceNo: params.partnerReferenceNo,
       amount: {
         value: formattedAmount,
         currency: "IDR",
       },
-      merchantId: this.merchantId || "MALL_ID_TEST",
+      merchantId: resolvedMerchantId,
       terminalId: params.terminalId || this.terminalId,
       validityPeriod: params.validityPeriod || new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
       additionalInfo: {
@@ -142,15 +209,23 @@ export class DokuQrisClient {
       },
     };
 
-    // Jika konfigurasi kosong, langsung fallback ke Simulator Mode yang mulus untuk pengujian lokal
-    if (!this.clientId || !this.merchantId || !this.secretKey) {
+    // Dalam mode Live Production, haram menggunakan simulator jika kredensial tidak ada / gagal
+    if (!this.clientId || !this.secretKey) {
+      if (this.isProduction) {
+        throw new Error("Kredensial DOKU (Client ID dan Secret Key) belum dikonfigurasi untuk Mode Live Production. Silakan isi di menu Admin Settings.");
+      }
       console.log("⚠️ DOKU Kredensial tidak lengkap -> Menggunakan SNAP QRIS Simulator Mode.");
       return this.simulateGenerateQris(params, formattedAmount);
     }
 
     try {
-      const signature = this.generateSignature("POST", endpointPath, requestBody, timestamp);
+      // 1. Ambil Token B2B terlebih dahulu secara otomatis
+      const token = await this.getAccessToken(timestamp);
 
+      // 2. Buat Tanda Tangan (Signature) HMAC-SHA512 dengan formula SNAP
+      const signature = this.generateSignature("POST", endpointPath, requestBody, timestamp, token);
+
+      // 3. Eksekusi API DOKU
       const response = await fetch(url, {
         method: "POST",
         headers: {
@@ -159,14 +234,21 @@ export class DokuQrisClient {
           "X-EXTERNAL-ID": externalId,
           "X-TIMESTAMP": timestamp,
           "X-SIGNATURE": signature,
-          "Authorization": `Bearer ${this.tokenB2b}`,
+          "Authorization": `Bearer ${token}`,
           "CHANNEL-ID": "H2H",
         },
         body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
-        console.warn(`⚠️ DOKU API error (${response.status}) -> Fallback ke Simulator Mode.`);
+        const errorText = await response.text();
+        console.error(`❌ DOKU API error (${response.status}):`, errorText);
+        
+        if (this.isProduction) {
+          throw new Error(`DOKU Live QRIS Gagal [HTTP ${response.status}]: ${errorText} | Pastikan konfigurasi IP Whitelist, Client ID, dan Secret Key di DOKU Dashboard sudah valid.`);
+        }
+        
+        console.warn(`⚠️ Fallback ke Simulator Mode (karena sedang di lingkungan tes/sandbox).`);
         return this.simulateGenerateQris(params, formattedAmount);
       }
 
@@ -181,7 +263,10 @@ export class DokuQrisClient {
         isSimulator: false,
       };
     } catch (error) {
-      console.error("❌ Error koneksi ke DOKU -> Fallback ke Simulator Mode:", error);
+      console.error("❌ Error koneksi/autentikasi ke DOKU:", error);
+      if (this.isProduction) {
+        throw error instanceof Error ? error : new Error("Terjadi kesalahan saat terhubung ke server DOKU QRIS.");
+      }
       return this.simulateGenerateQris(params, formattedAmount);
     }
   }
@@ -194,20 +279,22 @@ export class DokuQrisClient {
     const url = `${this.baseUrl}${endpointPath}`;
     const timestamp = new Date().toISOString();
     const externalId = Math.floor(Date.now() / 1000).toString();
+    const resolvedMerchantId = this.merchantId || this.clientId || "MALL_ID_TEST";
 
     const requestBody = {
       originalReferenceNo: params.originalReferenceNo,
       originalPartnerReferenceNo: params.originalPartnerReferenceNo,
       serviceCode: "47", // Unique service API for QRIS
-      merchantId: this.merchantId || "MALL_ID_TEST",
+      merchantId: resolvedMerchantId,
     };
 
-    if (!this.clientId || !this.merchantId || !this.secretKey || params.originalReferenceNo.startsWith("SIM-")) {
+    if (!this.clientId || !this.secretKey || params.originalReferenceNo.startsWith("SIM-")) {
       return this.simulateQueryQris(params);
     }
 
     try {
-      const signature = this.generateSignature("POST", endpointPath, requestBody, timestamp);
+      const token = await this.getAccessToken(timestamp);
+      const signature = this.generateSignature("POST", endpointPath, requestBody, timestamp, token);
 
       const response = await fetch(url, {
         method: "POST",
@@ -217,13 +304,17 @@ export class DokuQrisClient {
           "X-EXTERNAL-ID": externalId,
           "X-TIMESTAMP": timestamp,
           "X-SIGNATURE": signature,
-          "Authorization": `Bearer ${this.tokenB2b}`,
+          "Authorization": `Bearer ${token}`,
           "CHANNEL-ID": "H2H",
         },
         body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
+        if (this.isProduction) {
+          const errText = await response.text();
+          console.error(`DOKU Query QRIS Gagal (${response.status}):`, errText);
+        }
         return this.simulateQueryQris(params);
       }
 
@@ -248,7 +339,7 @@ export class DokuQrisClient {
    * 3. Cancel QRIS (POST /snap-adapter/b2b/v1.0/qr/qr-expire)
    */
   async cancelQris(params: CancelQrisParams): Promise<boolean> {
-    if (!this.clientId || !this.merchantId || !this.secretKey || params.referenceNo.startsWith("SIM-")) {
+    if (!this.clientId || !this.secretKey || params.referenceNo.startsWith("SIM-")) {
       return true; // Sukses dalam simulator
     }
 
@@ -256,16 +347,18 @@ export class DokuQrisClient {
     const url = `${this.baseUrl}${endpointPath}`;
     const timestamp = new Date().toISOString();
     const externalId = Math.floor(Date.now() / 1000).toString();
+    const resolvedMerchantId = this.merchantId || this.clientId || "MALL_ID_TEST";
 
     const requestBody = {
       partnerReferenceNo: params.partnerReferenceNo,
       referenceNo: params.referenceNo,
-      merchantId: this.merchantId,
+      merchantId: resolvedMerchantId,
       reason: params.reason || "Expired by system",
     };
 
     try {
-      const signature = this.generateSignature("POST", endpointPath, requestBody, timestamp);
+      const token = await this.getAccessToken(timestamp);
+      const signature = this.generateSignature("POST", endpointPath, requestBody, timestamp, token);
       const response = await fetch(url, {
         method: "POST",
         headers: {
@@ -274,7 +367,7 @@ export class DokuQrisClient {
           "X-EXTERNAL-ID": externalId,
           "X-TIMESTAMP": timestamp,
           "X-SIGNATURE": signature,
-          "Authorization": `Bearer ${this.tokenB2b}`,
+          "Authorization": `Bearer ${token}`,
           "CHANNEL-ID": "H2H",
         },
         body: JSON.stringify(requestBody),
